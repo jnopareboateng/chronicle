@@ -17,12 +17,22 @@ Solves two problems that compound over time in multi-agent engineering workflows
 
 ## Install
 
-```bash
-# Claude Code
-claude plugin install github:jnopareboateng/chronicle
+Auto-detects Claude Code and Codex — installs for everything it finds:
 
-# Wire up Codex (run once after the above)
-python3 ~/.claude/plugins/chronicle/scripts/install-codex.py
+```bash
+# From the repo (after cloning):
+python3 install.py
+
+# Remote one-liner:
+python3 <(curl -fsSL https://raw.githubusercontent.com/jnopareboateng/chronicle/main/install.py)
+```
+
+**Flags** (defaults to both if both are present):
+
+```bash
+python3 install.py --claude      # Claude Code only
+python3 install.py --codex       # Codex only
+python3 install.py --uninstall   # remove from both
 ```
 
 ## Usage
