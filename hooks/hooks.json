@@ -1,0 +1,17 @@
+{
+  "description": "Validate memory file writes before they land. Blocks on bad timestamp format.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate-write.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
