@@ -1,9 +1,0 @@
-{
-  "name": "chronicle",
-  "description": "Memory write enforcement and cross-agent sync for Claude Code + Codex. Blocks bad timestamps, enforces two-layer format, and propagates canonical project memory to both Claude and Codex native stores.",
-  "version": "0.1.0",
-  "author": {
-    "name": "jnopareboateng",
-    "url": "https://github.com/jnopareboateng/chronicle"
-  }
-}

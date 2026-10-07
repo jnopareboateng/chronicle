@@ -1,129 +1,113 @@
 # chronicle
 
-Memory write enforcement and cross-agent sync for Claude Code + Codex.
+Shared project memory for people and coding agents (Claude Code, Codex), stored in the repo.
+Git syncs it to every person, agent, machine and worktree.
 
-Solves two problems that compound over time in multi-agent engineering workflows:
-1. Agents hand-type or reuse stale timestamps → harness validation failures and blocked commits.
-2. Claude and Codex work from separate memory silos → findings from one agent never reach the other.
+## Problem
 
-## What it does
+Agent memory written as one timestamped log per repo (`UPDATE_LOG.md` prepended at the top,
+`PROJECT_MEMORY.md`) grows to hundreds of KB, drifts into many timestamp formats, conflicts on
+every parallel branch, and buries the few durable facts under session diaries. Mirroring it
+into a tool's global memory store leaks one project's facts into others.
 
-| Component | What |
-|---|---|
-| `PreToolUse` hook | Blocks any `Write`/`Edit` to a memory file where `Last Updated:` fails the canonical timestamp format |
-| `chronicle:write` skill | Step-by-step guided ritual: fetch timestamp → format two-layer entry → prepend |
-| `chronicle:sync` script + skill | Canonical `docs/memory/` → Claude + Codex native stores (forward); native stores → canonical diff (supervised reverse) |
-| `AGENTS.md` | Global injection — both Claude and Codex see the write protocol at session start |
+chronicle v2 keeps memory the way Claude Code's auto memory does (an index plus one fact per
+file) but inside the repo, where review, history and merges already work.
 
-## Install
-
-Auto-detects Claude Code and Codex — installs for everything it finds:
-
-```bash
-# From the repo (after cloning):
-python3 install.py
-
-# Remote one-liner:
-python3 <(curl -fsSL https://raw.githubusercontent.com/jnopareboateng/chronicle/main/install.py)
-```
-
-**Flags** (defaults to both if both are present):
-
-```bash
-python3 install.py --claude      # Claude Code only
-python3 install.py --codex       # Codex only
-python3 install.py --uninstall   # remove from both
-```
-
-## Usage
-
-### Writing to memory
-
-Invoke the skill before any memory file write:
+## Format
 
 ```
-chronicle:write    (Claude Code)
-chronicle-write    (Codex skill)
+docs/memory/
+  MEMORY.md                  generated index, injected at session start
+  auth-session-cookies.md    one fact per file
+  status-feat-billing.md
 ```
-
-Or just follow the protocol in AGENTS.md. The hook will block you if the timestamp is wrong.
-
-### Syncing across agents
-
-```bash
-# Forward: canonical → both native stores
-python3 ~/.claude/plugins/chronicle/scripts/sync.py
-
-# Reverse diff: show what native stores have that canonical doesn't
-python3 ~/.claude/plugins/chronicle/scripts/sync.py --reverse
-
-# Both
-python3 ~/.claude/plugins/chronicle/scripts/sync.py --full
-```
-
-### Getting a fresh timestamp
-
-```bash
-python3 ~/.claude/plugins/chronicle/scripts/timestamp.py
-```
-
-## Canonical memory file locations
-
-The sync script looks for these files relative to the current working directory:
-
-```
-docs/memory/PROJECT_MEMORY.md
-docs/memory/UPDATE_LOG.md
-```
-
-And validates writes to any file named `PROJECT_MEMORY.md`, `UPDATE_LOG.md`,
-`PHASE_STATUS.md`, or any `*.md` under `docs/memory/`.
-
-## Timestamp format
-
-```
-Last Updated: Tuesday, 24-06-2026, 3:15 pm
-```
-
-Regex: `^[A-Za-z]+, \d{2}-\d{2}-\d{4}, \d{1,2}:\d{2} (?:am|pm)`
-
-## Two-layer entry format
 
 ```markdown
-## Tuesday, 24-06-2026, 3:15 pm, [branch-name] Short title
+---
+name: auth-session-cookies
+description: Browser auth uses HttpOnly session cookies backed by the sessions table, not JWTs
+type: decision
+updated: 2026-09-14
+---
+Browser clients authenticate with an opaque session id in an HttpOnly cookie.
 
-- Plain-language summary (readable by a non-technical stakeholder)
-- Outcome, decision, or risk
-
-- Technical detail: file:line, migration, API contract, failure mode
-- What a future engineer needs to know
+**Why:** Role changes must revoke access immediately; JWT expiry windows could not.
+**How to apply:** New browser endpoints read `request.session`; never issue JWTs to browsers.
 ```
 
-Newest entries go at the **top**, below the `Last Updated:` header.
+Types: `status`, `decision`, `contract`, `gotcha`, `env`, `reference`. `MEMORY.md` lists
+entries by section, sorted by name, and is union-merged by git (`.gitattributes`), so parallel
+branches do not conflict. Descriptions stay within 100 chars, so about 60 entries fit the
+9000-byte session-start budget in full; past it, the remaining entries are listed by name.
+Full spec, budgets and examples:
+[`skills/chronicle/references/format.md`](skills/chronicle/references/format.md).
 
-## Sync design
+Nobody needs the tool to read or write memory: it is plain Markdown, and the format is
+repeated in the `MEMORY.md` header.
 
+## Install (teammates)
+
+The skill is one folder: `skills/chronicle/`. The installer copies it into `~/.claude/skills/`
+and/or `~/.codex/skills/` (whichever exist) and, with `--hooks`, adds a SessionStart hook that
+prints the repo's memory index into every new, resumed, cleared or compacted session (and, in
+Claude Code, forked session).
+
+```bash
+git clone https://github.com/jnopareboateng/chronicle
+python3 chronicle/skills/chronicle/scripts/chronicle.py install --hooks       # Linux, WSL, macOS
+py -3 chronicle\skills\chronicle\scripts\chronicle.py install --hooks         # Windows
 ```
-canonical docs/memory/*.md  (git-tracked, source of truth)
-       │
-       ▼  automatic
-  ┌────┴────┐
-Claude    Codex
-native    native
-  └────┬────┘
-       │
-       ▼  supervised (you review + confirm)
-canonical docs/memory/*.md
-```
 
-Forward sync is automatic and safe (overwrites the `chronicle_sync.md` mirror file in each native store).
-Reverse sync is supervised — the script shows a diff and the agent writes to canonical using `chronicle:write`, one entry at a time.
+- `--claude` / `--codex` pick targets; `--home DIR` and `--python CMD` override defaults.
+- Existing settings and hooks are preserved, in place and in order; a reinstall updates the
+  chronicle hook's command where it is and keeps a customized `timeout` or
+  `additionalContextLimit`. Before the first change, `settings.json` / `hooks.json` are
+  copied to `*.bak-chronicle`; later runs keep that original. Symlinked files are written
+  through. The skill folder is replaced only once the new copy is in place; a failed copy
+  leaves the previous installation as it was. Rerunning is safe.
+- Install natively on each OS: WSL and Windows have separate homes. From WSL,
+  `--home /mnt/c/Users/<you> --hooks` would write a Linux hook command that Windows cannot run
+  (install warns); run the Windows command above instead.
+- Codex runs a new or changed hook only after you trust it: open Codex and run `/hooks`.
+- Codex documents `~/.agents/skills/` as the user skill folder; Codex 0.159 still loads
+  `~/.codex/skills/`, which is where `install` puts the skill.
 
-## Codex enforcement note
+Then, in each repo: `chronicle init` (creates `docs/memory/` and the `.gitattributes` line) and
+paste [`references/agents-snippet.md`](skills/chronicle/references/agents-snippet.md) into the
+repo's `AGENTS.md`.
 
-The `PreToolUse` hook runs in Claude Code only. Codex gets behavioral enforcement
-via `AGENTS.md` + the `chronicle-write` skill. Hard block enforcement for Codex
-is deferred until Codex exposes a documented hook surface.
+### Upgrading from v1
+
+Remove v1 pieces after installing v2: `~/.claude/plugins/chronicle/`, the v1 `PreToolUse`
+`validate-write.py` hook entry in `~/.claude/settings.json`, `~/.codex/skills/chronicle-write/`,
+`~/.codex/skills/chronicle-sync/`, and the `chronicle_sync.md` mirrors in
+`~/.codex/memories/` and `~/.claude/projects/*/memory/`. Migrate repos with `migrate-plan`.
+
+## Commands
+
+Run `chronicle.py <command> --cwd <dir-in-repo>` (`--cwd` defaults to `.`).
+
+| Command | Does |
+|---|---|
+| `context [--max-bytes 9000]` | Print the index for SessionStart hooks (past the cap, remaining entries by name); prints nothing outside a memory repo; never fails |
+| `index [--check]` | Regenerate `MEMORY.md`; `--check` exits 1 if it is stale |
+| `lint [--strict]` | Format, budgets, secrets, personal data, index drift; `LEVEL path: message` per line |
+| `new <type> <slug> --description TEXT` | Scaffold a memory (refuses to overwrite) and reindex |
+| `init` | Create `docs/memory/`, `MEMORY.md` and `docs/memory/MEMORY.md merge=union`; idempotent |
+| `migrate-plan` | Read-only inventory and checklist for repos with `UPDATE_LOG.md` / `PROJECT_MEMORY.md` |
+| `install [--claude] [--codex] [--home DIR] [--hooks] [--python CMD]` | Install the skill, optionally the hook |
+
+How agents use it (recall, write, curate, migrate): [`skills/chronicle/SKILL.md`](skills/chronicle/SKILL.md).
+
+### Optional guards
+
+`merge=union` keeps both sides' `MEMORY.md` lines, so a merge can leave stale or duplicate
+lines behind. `chronicle lint` as a pre-commit hook and `chronicle index --check` in CI catch
+that drift. chronicle installs neither; wire them into the repo's own hooks and CI if wanted.
+
+## Development
+
+See [`AGENTS.md`](AGENTS.md). Stdlib-only Python 3.8+; tests: `python3 -m unittest discover -s tests -v`.
 
 ## License
 
